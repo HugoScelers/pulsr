@@ -19,6 +19,7 @@ jobs:
           echo "Xcode choisi : $XC"
           sudo xcode-select -s "$XC"
           xcodebuild -version
+          xcodebuild -downloadComponent MetalToolchain
 
       - name: Compiler
         run: |
