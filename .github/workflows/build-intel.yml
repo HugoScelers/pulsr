@@ -1,0 +1,47 @@
+# Compile Pulsr sur un Mac de GitHub et produit Pulsr.ipa (à installer avec Sideloadly).
+name: Build IPA Intel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15-intel
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Préparer la config
+        run: |
+          OWNER=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]' | tr -cd 'a-z0-9')
+          printf 'BUNDLE_ID_PREFIX = com.%s\nDEVELOPMENT_TEAM =\n' "$OWNER" > Config/Local.xcconfig
+          cat Config/Local.xcconfig
+          XC=$(ls -d /Applications/Xcode_26*.app | sort -V | tail -1)
+          echo "Xcode choisi : $XC"
+          sudo xcode-select -s "$XC"
+          xcodebuild -version
+
+      - name: Compiler
+        run: |
+          xcodebuild build \
+            -project Pulsr.xcodeproj -scheme Pulsr -configuration Release \
+            -sdk iphoneos -destination 'generic/platform=iOS' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY=""
+
+      - name: Signer (ad hoc, avec les droits HealthKit) et créer l'IPA
+        run: |
+          APP=build/Build/Products/Release-iphoneos/Pulsr.app
+          WATCH=$(find "$APP" -name "*.app" -path "*/Watch/*" | head -1)
+          if [ -n "$WATCH" ]; then
+            codesign -f -s - --entitlements Watch/PulsrWatch.entitlements "$WATCH"
+          fi
+          find "$APP" -name "*.framework" -o -name "*.dylib" | while read f; do codesign -f -s - "$f"; done
+          codesign -f -s - --entitlements iOS/Resources/Pulsr.entitlements "$APP"
+          mkdir -p out/Payload
+          cp -R "$APP" out/Payload/
+          cd out && zip -qry Pulsr.ipa Payload && ls -lh Pulsr.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Pulsr-ipa
+          path: out/Pulsr.ipa
